@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/apsisd",
+  "crates/apsisctl",
+]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Josh King <josh@throneless.tech>"]
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/throneless-tech/apsis"
+homepage = "https://apsis.throneless.tech"
+keywords = ["cas", "rust", "eris"]
+
+[profile.dev]
+debug = true
