@@ -19,6 +19,7 @@ use mainline::errors::DecodeIdError;
 use opentelemetry_otlp;
 use reqwest::Error as ReqwestError;
 use rocksdb::Error as RocksDBError;
+use std::array::TryFromSliceError;
 use std::io;
 use thiserror::Error;
 use thiserror_ext::Box;
@@ -42,6 +43,8 @@ pub enum ApsisErrorKind {
     Reqwest(#[from] ReqwestError),
     #[error("RocksDB error: `{0}`")]
     RocksDB(#[from] RocksDBError),
+    #[error("TryFromSliceError: `{0}`")]
+    TryFromSliceError(#[from] TryFromSliceError),
 }
 
 pub type Result<T> = std::result::Result<T, ApsisError>;

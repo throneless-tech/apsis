@@ -26,9 +26,7 @@ const MAX_PEER_RETRIES: usize = 3;
 const REFKEY_SIZE_BYTES: usize = 32;
 
 pub fn try_ref_to_id(reference: &[u8; 32]) -> Result<Id> {
-    let shortened: &[u8; 20] = reference.as_slice().try_into().unwrap();
-
-    let id = Id::from_bytes(shortened).map_err(|err| DecodeIdError::InvalidIdSize(err))?;
+    let id = Id::from_bytes(&reference[..20]).map_err(|err| DecodeIdError::InvalidIdSize(err))?;
     Ok(id)
 }
 

@@ -31,12 +31,13 @@ use eris_rs::{
     encode::encode,
     types::{BlockSize, BlockStorageError, BlockWithReference, ReadCapability, Reference},
 };
-use mainline::{Dht, Id};
+use mainline::Dht;
 use rand::prelude::*;
 use rand_chacha::ChaCha20Rng;
 use serde_json::Value;
 use std::io;
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use std::sync::Arc;
+use tokio_util::task::TaskTracker;
 
 use crate::db::Db;
 use crate::utils;
@@ -44,10 +45,9 @@ use crate::utils;
 #[derive(Clone)]
 pub struct ApiState {
     pub auth: String,
-    pub dht: Dht,
+    pub dht: Arc<Dht>,
     pub rng: ChaCha20Rng,
     pub store: Db,
-    pub token: CancellationToken,
     pub tracker: TaskTracker,
 }
 
@@ -65,22 +65,25 @@ where
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
         let headers = req.headers();
-        match headers.get(CONTENT_TYPE) {
-            Some(content_type) if content_type == "application/json" => {
+        let content_type = headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok());
+        match content_type {
+            Some(content_type) if content_type.starts_with("application/json") => {
                 let Json(body) = req
                     .extract::<Json<Value>, _>()
                     .await
                     .map_err(|err| err.into_response())?;
                 Ok(Self::Json(body))
             }
-            Some(content_type) if content_type == "multipart/form-data" => {
+            Some(content_type) if content_type.starts_with("multipart/form-data") => {
                 let body = req
                     .extract::<Multipart, _>()
                     .await
                     .map_err(|err| err.into_response())?;
                 Ok(Self::File(body))
             }
-            _ => Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
+            _ => Err((StatusCode::UNSUPPORTED_MEDIA_TYPE).into_response()),
         }
     }
 }
@@ -118,36 +121,44 @@ pub async fn resource_to_name(
                     .write_block(block.reference, block.block)
                     .map_err(|_err| io::Error::other("Failed to write block to database."));
                 let id = utils::try_ref_to_id(&block.reference)
-                    .map_err(|_err| io::Error::other("Failed to fetch block ID from reference."))?;
-                let _ = state
-                    .dht
-                    .announce_peer(id, None)
-                    .map_err(|_err| io::Error::other("Failed to announce block peer."));
+                    .map_err(|err| io::Error::other(err.to_string()))?;
+                let dht = state.dht.clone();
+                state.tracker.spawn(async move {
+                    let _ = dht
+                        .announce_peer(id, None)
+                        .map_err(|_err| io::Error::other("Failed to announce block peer."));
+                });
+
                 res
             };
             let bytes = json.to_string();
-            let block_size = if bytes.as_bytes().len() < 32000 {
+            let block_size = if bytes.as_bytes().len() < 1000 {
                 BlockSize::Size1KiB
             } else {
                 BlockSize::Size32KiB
             };
-            if let Ok(capability) = encode(&mut bytes.as_bytes(), &key, block_size, &write_block) {
-                (StatusCode::CREATED, capability.to_urn())
-            } else {
-                (
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "Failed to create capability.".to_owned(),
-                )
+            match encode(&mut bytes.as_bytes(), &key, block_size, &write_block) {
+                Ok(capability) => (StatusCode::CREATED, capability.to_urn()),
+                Err(err) => (StatusCode::UNPROCESSABLE_ENTITY, err.to_string()),
             }
         }
         Content::File(mut multipart) => {
             let mut key = [0u8; 32];
             state.rng.fill_bytes(&mut key);
             let write_block = move |block: BlockWithReference| -> Result<usize, BlockStorageError> {
-                state
+                let res = state
                     .store
                     .write_block(block.reference, block.block)
-                    .map_err(|_err| io::Error::other("Failed to write block to database."))
+                    .map_err(|_err| io::Error::other("Failed to write block to database."));
+                let id = utils::try_ref_to_id(&block.reference)
+                    .map_err(|err| io::Error::other(err.to_string()))?;
+                let dht = state.dht.clone();
+                state.tracker.spawn(async move {
+                    let _ = dht
+                        .announce_peer(id, None)
+                        .map_err(|_err| io::Error::other("Failed to announce block peer."));
+                });
+                res
             };
 
             if let Ok(Some(field)) = multipart.next_field().await {
@@ -201,7 +212,17 @@ pub async fn name_to_resource(
         if let Ok(_size) = decode(capability, &mut buf, &read_block) {
             let buf = buf.into_inner();
             match headers.get(ACCEPT) {
-                Some(accept) if accept == "application/json" => Json(buf.to_vec()).into_response(),
+                Some(accept) if accept == "application/json" => {
+                    if let Ok(json) = serde_json::from_slice::<Value>(&buf) {
+                        Json(json).into_response()
+                    } else {
+                        (
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "Entity is not JSON".to_owned(),
+                        )
+                            .into_response()
+                    }
+                }
                 Some(accept) if accept == "application/octet-stream" => buf.into_response(),
                 _ => (
                     StatusCode::NOT_FOUND,

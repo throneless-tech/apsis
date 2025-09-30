@@ -44,8 +44,9 @@ use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::task::TaskTracker;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::prelude::*;
@@ -104,7 +105,7 @@ async fn authenticate(
     next: Next,
 ) -> std::result::Result<Response, StatusCode> {
     //Only the content endpoint is authenticated
-    if !(req.uri() == "/content" || req.uri() == "/content/") {
+    if !(req.uri() == "/uri-res/R2N" || req.uri() == "/uri-res/R2N/") {
         return Ok(next.run(req).await);
     }
     let auth_header = req
@@ -181,14 +182,12 @@ async fn main() -> Result<()> {
     let rng = ChaCha20Rng::from_os_rng();
 
     // Create API state
-    let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let state = ApiState {
         auth: server.auth,
-        dht,
+        dht: Arc::new(dht),
         rng,
         store,
-        token: token.clone(),
         tracker: tracker.clone(),
     };
 
@@ -200,17 +199,6 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     println!("Server is running 🤖");
-
-    {
-        let tracker = tracker.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("Failed to listen for signal");
-            tracker.close();
-            token.cancel();
-        });
-    }
 
     if let Ok(addr) = server.bind.parse::<SocketAddr>() {
         let listener = tokio::net::TcpListener::bind(addr)
