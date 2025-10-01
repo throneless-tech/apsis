@@ -121,6 +121,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-test",
+ "base32 0.5.1",
  "blake2b_simd",
  "bytes",
  "clap",
@@ -332,6 +333,12 @@ name = "base32"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23ce669cd6c8588f79e15cf450314f9638f967fc5770ff1c7c1deb0925ea7cfa"
+
+[[package]]
+name = "base32"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "022dfe9eb35f19ebbcb51e0b40a5ab759f46ad60cadf7297e0bd085afb50e076"
 
 [[package]]
 name = "base64"
@@ -852,7 +859,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d7fd85d86ade32f023e022a4e7f60bb8ce456ceae6b30d6087e1ff6789d2ba"
 dependencies = [
- "base32",
+ "base32 0.4.0",
  "blake2b_simd",
  "chacha20",
  "hex-literal",

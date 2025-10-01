@@ -207,7 +207,7 @@ pub async fn name_to_resource(
                 .map_err(|_err| io::Error::other("Failed to fetch block."))
         }
     };
-    if let Some(capability) = ReadCapability::from_urn(query) {
+    if let Some(capability) = ReadCapability::from_urn(query.clone()) {
         let mut buf = BytesMut::new().writer();
         if let Ok(_size) = decode(capability, &mut buf, &read_block) {
             let buf = buf.into_inner();
@@ -236,6 +236,12 @@ pub async fn name_to_resource(
                 "Failed to dereference capability.".to_owned(),
             )
                 .into_response()
+        }
+    } else if let Some(reference) = utils::urn_to_ref(query) {
+        if let Ok(block) = read_block(reference) {
+            block.into_response()
+        } else {
+            (StatusCode::NOT_FOUND, "Failed to fetch block.".to_owned()).into_response()
         }
     } else {
         (

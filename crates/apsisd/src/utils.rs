@@ -16,36 +16,54 @@
 
 use std::net::SocketAddrV4;
 
+use base32;
 use blake2b_simd::Params;
+use eris_rs::types::Reference;
 use mainline::{Dht, Id, errors::DecodeIdError};
 use reqwest;
 
 use crate::error::{ApsisErrorKind, Result};
 
 const MAX_PEER_RETRIES: usize = 3;
-const REFKEY_SIZE_BYTES: usize = 32;
 
-pub fn try_ref_to_id(reference: &[u8; 32]) -> Result<Id> {
+pub fn try_ref_to_id(reference: &Reference) -> Result<Id> {
     let id = Id::from_bytes(&reference[..20]).map_err(|err| DecodeIdError::InvalidIdSize(err))?;
     Ok(id)
 }
 
-fn peer_to_url(peer: SocketAddrV4, block: Id) -> String {
+pub fn urn_to_ref(urn: String) -> Option<Reference> {
+    let base32_alphabet = base32::Alphabet::Rfc4648 { padding: false };
+    match urn.split_once("urn:") {
+        Some((_, reference_base32)) => match base32::decode(base32_alphabet, reference_base32) {
+            Some(bytes) => bytes.try_into().ok(),
+            None => None,
+        },
+        None => None,
+    }
+}
+
+fn ref_to_urn(reference: &Reference) -> String {
+    let base32_alphabet = base32::Alphabet::Rfc4648 { padding: false };
+    let block_ref = base32::encode(base32_alphabet, reference);
+    "urn:".to_owned() + &block_ref
+}
+
+fn peer_to_url(peer: SocketAddrV4, block: &Reference) -> String {
     format!(
         "https://{}:{}/uri-res/N2R?{}",
         peer.ip(),
         peer.port(),
-        block.to_string()
+        ref_to_urn(block)
     )
 }
 
-fn blake2b256_hash(input: &[u8], key: Option<&[u8]>) -> [u8; REFKEY_SIZE_BYTES] {
+fn blake2b256_hash(input: &[u8], key: Option<&[u8]>) -> Reference {
     let mut hasher = match key {
         Some(k) => Params::new().hash_length(32).key(k).to_state(),
         None => Params::new().hash_length(32).to_state(),
     };
     hasher.update(input);
-    let mut result: [u8; REFKEY_SIZE_BYTES] = Default::default();
+    let mut result: Reference = Default::default();
     result.copy_from_slice(hasher.finalize().as_bytes());
     result
 }
@@ -63,7 +81,7 @@ pub fn fetch_block(reference: [u8; 32], dht: &Dht, check: bool) -> Result<Vec<u8
         let subset = dht.get_peers(id);
         for peers in subset {
             for peer in peers {
-                let candidate = client.get(peer_to_url(peer, id)).send()?.bytes()?;
+                let candidate = client.get(peer_to_url(peer, &reference)).send()?.bytes()?;
                 if check {
                     let hash = blake2b256_hash(candidate.as_ref(), None);
                     if hash != reference {
