@@ -14,16 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use anyhow::Result;
+use clap::{Args, Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
-use futures_util::{Sink, SinkExt, StreamExt};
-use http::HeaderValue;
-use serde_json::json;
-use std::fs::File;
-use std::io;
-use std::{fs, marker::Unpin, path::PathBuf};
-use tracing::{debug, error};
+use std::path::PathBuf;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tracing_log::AsTrace;
 use url::Url;
 
@@ -31,10 +27,6 @@ use url::Url;
 #[derive(Debug, Parser)] // requires `derive` feature
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// API authentication token
-    #[arg(short, long)]
-    auth: String,
-
     /// IP address and port to connect to
     #[arg(short, long)]
     connect: String,
@@ -47,37 +39,53 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+struct Input {
+    /// JSON data
+    #[arg(short, long)]
+    json: Option<String>,
+
+    /// File path
+    #[arg(short, long)]
+    file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+struct Output {
+    /// JSON data
+    #[arg(short, long)]
+    stdout: bool,
+
+    /// File path
+    #[arg(short, long)]
+    file: Option<PathBuf>,
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Insert JSON data
+    /// Upload JSON or file data
     #[command(arg_required_else_help = true)]
-    AddJson {
-        /// JSON data
-        #[arg(required = true)]
-        data: String,
-    },
-
-    /// Insert binary file
-    #[command(arg_required_else_help = true)]
-    AddFile {
-        /// File path
-        #[arg(required = true)]
-        path: PathBuf,
-    },
-
-    /// Fetch JSON
-    #[command(arg_required_else_help = true)]
-    GetJson {
-        /// Capability URN
+    Upload {
+        /// API authentication token
         #[arg(short, long)]
-        urn: String,
+        auth: String,
+
+        /// Input selection
+        #[command(flatten)]
+        input: Input,
     },
 
-    /// Fetch binary file
+    /// Download JSON or file data
     #[command(arg_required_else_help = true)]
-    GetFile {
+    Download {
+        /// Output selection
+        #[command(flatten)]
+        output: Output,
+
         /// Capability URN
-        #[arg(short, long)]
+        #[arg(required = true)]
         urn: String,
     },
 }
@@ -89,28 +97,45 @@ async fn main() -> Result<()> {
         .with_max_level(args.verbose.log_level_filter().as_trace())
         .init();
     let connect = args.connect;
-    let auth = args.auth;
 
-    let url = Url::parse(&connect).unwrap();
+    let mut url = Url::parse(&connect).expect("Invalid connection URI.");
+    url = url.join("uri-res/")?;
     let client = reqwest::Client::new();
     match args.command {
-        Commands::AddJson { data } => {
-            debug!("Request: {:?}", data.to_string());
+        Commands::Upload { auth, input } => {
+            let url = url.join("R2N")?;
+            if let Some(data) = input.json {
+                let res = client
+                    .post(url)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", auth)
+                    .body(data)
+                    .send()
+                    .await?;
+                println!("{}", res.text().await?);
+            } else if let Some(path) = input.file {
+                let file = File::open(path).await?;
+                let res = client
+                    .post(url)
+                    .header("Authorization", auth)
+                    .body(file)
+                    .send()
+                    .await?;
+                println!("{}", res.text().await?);
+            }
         }
-        Commands::AddFile { path } => {
-            debug!("Request: {:?}", path);
-            let file = File::open(path)?;
-            let res = client.post(url).body(file).send().await?;
-        }
-        Commands::GetJson { urn } => {
-            debug!("Request: {:?}", urn.to_string());
-            let res = client.get(url).send().await?.json().await?;
-            println!("{}", res);
-        }
-        Commands::GetFile { urn } => {
-            debug!("Request: {:?}", urn.to_string());
-            let res = client.get(url).send().await?.bytes().await?;
-            println!("{:?}", res);
+        Commands::Download { output, urn } => {
+            let route = "N2R?".to_owned() + &urn;
+            let url = url.join(&route)?;
+            if output.stdout {
+                println!("{}", client.get(url).send().await?.text().await?);
+            } else if let Some(path) = output.file {
+                let mut file = File::create(&path).await?;
+                file.write_all(&client.get(url).send().await?.bytes().await?)
+                    .await?;
+                file.flush().await?;
+                println!("Wrote to file {}.", path.to_string_lossy());
+            }
         }
     }
     Ok(())

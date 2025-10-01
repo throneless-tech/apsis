@@ -224,9 +224,11 @@ pub async fn name_to_resource(
                     }
                 }
                 Some(accept) if accept == "application/octet-stream" => buf.into_response(),
-                _ => (
-                    StatusCode::NOT_FOUND,
-                    "Failed to fetch capability.".to_owned(),
+                Some(accept) if accept == "*/*" => buf.into_response(),
+                None => buf.into_response(),
+                Some(accept) => (
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    format!("Unsupported media type {:?}", accept),
                 )
                     .into_response(),
             }
