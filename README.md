@@ -6,6 +6,8 @@ Files or JSON data encoded using ERIS are split up into encrypted blocks and sto
 Apsis exposes a simple API based on [RFC2169](https://datatracker.ietf.org/doc/html/rfc2169), extended to support file uploads. An HTTP `POST` to `/uri-res/R2N` will upload the data (such as a JSON string or arbitrary file) and return an ERIS URN (a matching token in the `Authorization` header is required to upload). An HTTP `GET` to `/uri-res/N2R?<ERIS URN>` will return the data.
 
 A simple client, `apsisctl`, is provided for convenience but it's almost equally simple to use `curl`.
+
+**NOTE:** For block discovery, this has the same network limitations as seeding a file with Bittorrent, namely the `apsisd` instance serving a block needs to have its port exposed to the internet.
 ## Usage
 
 Server:
@@ -16,6 +18,7 @@ Options:
   -v, --verbose...           Increase logging verbosity
   -q, --quiet...             Decrease logging verbosity
   -b, --bind <BIND>          IP address and port to bind to
+  -p, --port <PORT>          Port to advertise (otherwise uses bind port)
   -a, --auth <AUTH>          API authorization token
   -d, --database <DATABASE>  Path to Rocksdb database file
   -o, --opentelemetry        Enable Opentelemetry
