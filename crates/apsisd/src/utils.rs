@@ -50,7 +50,7 @@ fn ref_to_urn(reference: &Reference) -> String {
 
 fn peer_to_url(peer: SocketAddrV4, block: &Reference) -> String {
     format!(
-        "https://{}:{}/uri-res/N2R?{}",
+        "http://{}:{}/uri-res/N2R?{}",
         peer.ip(),
         peer.port(),
         ref_to_urn(block)

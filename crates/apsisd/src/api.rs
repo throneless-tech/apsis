@@ -37,6 +37,7 @@ use rand_chacha::ChaCha20Rng;
 use serde_json::Value;
 use std::io;
 use std::sync::Arc;
+use tokio::task;
 use tokio_util::task::TaskTracker;
 
 use crate::db::Db;
@@ -210,7 +211,7 @@ pub async fn name_to_resource(
     };
     if let Some(capability) = ReadCapability::from_urn(query.clone()) {
         let mut buf = BytesMut::new().writer();
-        if let Ok(_size) = decode(capability, &mut buf, &read_block) {
+        if let Ok(_size) = task::block_in_place(|| decode(capability, &mut buf, &read_block)) {
             let buf = buf.into_inner();
             match headers.get(ACCEPT) {
                 Some(accept) if accept == "application/json" => {
