@@ -46,6 +46,7 @@ use crate::utils;
 pub struct ApiState {
     pub auth: String,
     pub dht: Arc<Dht>,
+    pub port: Option<u16>,
     pub rng: ChaCha20Rng,
     pub store: Db,
     pub tracker: TaskTracker,
@@ -155,7 +156,7 @@ pub async fn resource_to_name(
                 let dht = state.dht.clone();
                 state.tracker.spawn(async move {
                     let _ = dht
-                        .announce_peer(id, None)
+                        .announce_peer(id, state.port)
                         .map_err(|_err| io::Error::other("Failed to announce block peer."));
                 });
                 res

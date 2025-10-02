@@ -47,6 +47,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tokio_util::task::TaskTracker;
+use tracing::debug;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::prelude::*;
@@ -65,6 +66,11 @@ struct Cli {
     #[arg(short, long)]
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     bind: Option<String>,
+
+    /// Port to advertise (otherwise uses bind port)
+    #[arg(short, long)]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    port: Option<u16>,
 
     /// API authorization token
     #[arg(short, long)]
@@ -88,6 +94,9 @@ struct Config {
 
     /// IP address and port to bind to
     bind: String,
+
+    /// Port to advertise (otherwise uses bind port)
+    port: Option<u16>,
 
     /// API authorization token
     auth: String,
@@ -186,6 +195,7 @@ async fn main() -> Result<()> {
     let state = ApiState {
         auth: server.auth,
         dht: Arc::new(dht),
+        port: server.port,
         rng,
         store,
         tracker: tracker.clone(),
